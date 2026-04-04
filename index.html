@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>B2B Trade Hub</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-left" aria-hidden="true"></div>
+    <div class="bg-orb orb-right" aria-hidden="true"></div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">B2B Marketplace</p>
+          <h1>Trade Hub</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="ghost-btn" id="viewSellBtn">Активы на продаже</button>
+          <button class="ghost-btn" id="viewBuyBtn">Заявки на закупку</button>
+          <button class="brand-btn" id="createBtn">Разместить лот</button>
+        </div>
+      </header>
+
+      <section class="stats" id="stats"></section>
+
+      <section class="workspace">
+        <aside class="filters panel">
+          <h2>Фильтры</h2>
+
+          <label>
+            Поиск
+            <input id="searchInput" type="text" placeholder="Товар, компания, категория" autocomplete="off" />
+          </label>
+
+          <label>
+            Тип сделки
+            <select id="typeFilter">
+              <option value="all">Все</option>
+              <option value="sell">Продают</option>
+              <option value="buy">Покупают</option>
+            </select>
+          </label>
+
+          <label>
+            Категория
+            <select id="categoryFilter">
+              <option value="all">Все категории</option>
+            </select>
+          </label>
+
+          <div class="legend">
+            <h3>Фокус платформы</h3>
+            <p>Прямые сделки между компаниями: оборудование, сырье, логистика, ИТ и услуги.</p>
+          </div>
+        </aside>
+
+        <section class="board panel">
+          <div class="board-top">
+            <h2 id="boardTitle">Все объявления</h2>
+            <span id="resultCount" class="result-count"></span>
+          </div>
+          <ul id="cards" class="cards" aria-label="Ленты объявлений"></ul>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="lotDialog" class="lot-dialog">
+      <form id="lotForm" class="dialog-card" method="dialog">
+        <div class="dialog-head">
+          <h2>Новый лот</h2>
+          <button type="button" class="icon-btn" id="closeDialogBtn" aria-label="Закрыть">×</button>
+        </div>
+
+        <div class="dialog-grid">
+          <label>
+            Тип сделки
+            <select name="type" required>
+              <option value="sell">Компания продает</option>
+              <option value="buy">Компания покупает</option>
+            </select>
+          </label>
+
+          <label>
+            Компания
+            <input name="company" type="text" required maxlength="80" placeholder="ООО ТехСнаб" />
+          </label>
+
+          <label>
+            Город
+            <input name="city" type="text" required maxlength="60" placeholder="Москва" />
+          </label>
+
+          <label>
+            Категория
+            <input name="category" type="text" required maxlength="60" placeholder="Промышленное оборудование" />
+          </label>
+
+          <label>
+            Актив / позиция
+            <input name="title" type="text" required maxlength="100" placeholder="Погрузчики электрические" />
+          </label>
+
+          <label>
+            Цена за единицу, ₽
+            <input name="price" type="number" min="1" required placeholder="250000" />
+          </label>
+
+          <label>
+            Количество
+            <input name="quantity" type="number" min="1" required placeholder="12" />
+          </label>
+
+          <label>
+            Ед. измерения
+            <input name="unit" type="text" required maxlength="20" placeholder="шт" />
+          </label>
+        </div>
+
+        <label>
+          Описание
+          <textarea name="description" rows="4" maxlength="500" placeholder="Условия сделки, сроки отгрузки, требования к поставщику"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button type="button" class="ghost-btn" id="cancelDialogBtn">Отмена</button>
+          <button type="submit" class="brand-btn">Опубликовать</button>
+        </div>
+      </form>
+    </dialog>
+
+    <template id="cardTemplate">
+      <li class="card-item">
+        <article class="trade-card">
+          <div class="card-badges">
+            <span class="badge type-badge"></span>
+            <span class="badge verify-badge">Проверенная компания</span>
+          </div>
+          <h3 class="card-title"></h3>
+          <p class="card-desc"></p>
+          <div class="card-meta"></div>
+          <div class="card-footer">
+            <div class="company"></div>
+            <button class="ghost-btn small">Открыть сделку</button>
+          </div>
+        </article>
+      </li>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
