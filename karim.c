@@ -1,1 +1,0 @@
-"Eliza ya pokakal"
