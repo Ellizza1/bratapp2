@@ -1,4 +1,14 @@
 const STORAGE_KEY = "b2b-trade-hub-v1";
+const VIEW_MODE_KEY = "b2b-trade-view-mode-v1";
+const SECTION_KEY = "b2b-trade-section-v1";
+const STATUS_COLUMNS = [
+  { key: "draft", title: "Черновик" },
+  { key: "review", title: "Проверка" },
+  { key: "published", title: "Опубликовано" },
+  { key: "bidding", title: "Идут торги" },
+  { key: "done", title: "Завершено" },
+];
+const STATUS_SET = new Set(STATUS_COLUMNS.map((item) => item.key));
 
 const cardsEl = document.getElementById("cards");
 const statsEl = document.getElementById("stats");
@@ -7,37 +17,49 @@ const resultCountEl = document.getElementById("resultCount");
 const cardTemplate = document.getElementById("cardTemplate");
 
 const searchInput = document.getElementById("searchInput");
-const typeFilter = document.getElementById("typeFilter");
 const categoryFilter = document.getElementById("categoryFilter");
 
 const createBtn = document.getElementById("createBtn");
 const viewSellBtn = document.getElementById("viewSellBtn");
 const viewBuyBtn = document.getElementById("viewBuyBtn");
+const viewListBtn = document.getElementById("viewListBtn");
+const viewKanbanBtn = document.getElementById("viewKanbanBtn");
 
 const lotDialog = document.getElementById("lotDialog");
 const lotForm = document.getElementById("lotForm");
+const addLotBtn = document.getElementById("addLotBtn");
+const lotItems = document.getElementById("lotItems");
 const closeDialogBtn = document.getElementById("closeDialogBtn");
 const cancelDialogBtn = document.getElementById("cancelDialogBtn");
 
 let listings = loadListings();
+let viewMode = loadViewMode();
+let section = loadSection();
 
+resetLotBuilder();
 render();
 
 searchInput.addEventListener("input", render);
-typeFilter.addEventListener("change", render);
 categoryFilter.addEventListener("change", render);
 
 viewSellBtn.addEventListener("click", () => {
-  typeFilter.value = "sell";
-  render();
+  setSection("sell");
 });
 
 viewBuyBtn.addEventListener("click", () => {
-  typeFilter.value = "buy";
-  render();
+  setSection("buy");
+});
+
+viewListBtn.addEventListener("click", () => {
+  setViewMode("list");
+});
+
+viewKanbanBtn.addEventListener("click", () => {
+  setViewMode("kanban");
 });
 
 createBtn.addEventListener("click", openDialog);
+addLotBtn.addEventListener("click", () => appendLotRow());
 closeDialogBtn.addEventListener("click", closeDialog);
 cancelDialogBtn.addEventListener("click", closeDialog);
 
@@ -45,19 +67,21 @@ lotForm.addEventListener("submit", (event) => {
   event.preventDefault();
 
   const formData = new FormData(lotForm);
-  const price = Number(formData.get("price"));
-  const quantity = Number(formData.get("quantity"));
+  const lots = collectLots();
+  if (!lots.length) {
+    alert("Добавьте хотя бы один лот: позиция, количество и максимальная цена.");
+    return;
+  }
 
   const item = {
     id: crypto.randomUUID(),
     type: String(formData.get("type")),
+    status: normalizeStatus(String(formData.get("status"))),
     company: cleanText(formData.get("company")),
     city: cleanText(formData.get("city")),
     category: cleanText(formData.get("category")),
     title: cleanText(formData.get("title")),
-    price: Number.isFinite(price) ? price : 0,
-    quantity: Number.isFinite(quantity) ? quantity : 0,
-    unit: cleanText(formData.get("unit")),
+    lots,
     description: cleanText(formData.get("description")),
     verified: true,
     rating: randomRating(),
@@ -68,9 +92,11 @@ lotForm.addEventListener("submit", (event) => {
   saveListings();
   closeDialog();
   lotForm.reset();
+  resetLotBuilder();
 
   injectCategory(item.category);
-  typeFilter.value = item.type;
+  section = item.type === "buy" ? "buy" : "sell";
+  localStorage.setItem(SECTION_KEY, section);
   render();
 });
 
@@ -107,8 +133,8 @@ function renderStats() {
   statsEl.innerHTML = "";
 
   const stats = [
-    { label: "Лотов на продаже", value: sellCount },
-    { label: "Заявок на закупку", value: buyCount },
+    { label: "Объявлений о продаже", value: sellCount },
+    { label: "Объявлений о покупке", value: buyCount },
     { label: "Проверенных компаний", value: verifiedCount },
     { label: "Средний чек сделки", value: money(avgCheck) },
   ];
@@ -123,7 +149,15 @@ function renderStats() {
 
 function renderBoard() {
   const filtered = getFilteredListings();
+  const companyLotCounts = getCompanyLotCountsBySection();
   cardsEl.innerHTML = "";
+  cardsEl.classList.toggle("cards-list", viewMode === "list");
+  cardsEl.classList.toggle("cards-kanban", viewMode === "kanban");
+
+  viewListBtn.classList.toggle("is-active", viewMode === "list");
+  viewKanbanBtn.classList.toggle("is-active", viewMode === "kanban");
+  viewSellBtn.classList.toggle("is-active", section === "sell");
+  viewBuyBtn.classList.toggle("is-active", section === "buy");
 
   boardTitleEl.textContent = resolveTitle();
   resultCountEl.textContent = `${filtered.length} результатов`;
@@ -136,64 +170,176 @@ function renderBoard() {
     return;
   }
 
-  filtered.forEach((item, index) => {
+  if (viewMode === "kanban") {
+    renderKanban(filtered, companyLotCounts);
+    return;
+  }
+
+  renderList(filtered, companyLotCounts);
+}
+
+function renderList(items, companyLotCounts) {
+  items.forEach((item, index) => {
     const node = cardTemplate.content.cloneNode(true);
     const card = node.querySelector(".trade-card");
     const typeBadge = node.querySelector(".type-badge");
+    const statusBadge = node.querySelector(".status-badge");
     const title = node.querySelector(".card-title");
     const desc = node.querySelector(".card-desc");
+    const lotsEl = node.querySelector(".card-lots");
     const meta = node.querySelector(".card-meta");
     const company = node.querySelector(".company");
+    const lots = normalizeLots(item.lots);
+    const totalUnits = sumLotUnits(lots);
+    const totalBudget = sumLotBudget(lots);
 
     typeBadge.textContent = item.type === "sell" ? "Компания продает" : "Компания покупает";
     typeBadge.classList.add(item.type === "sell" ? "type-sell" : "type-buy");
+    statusBadge.textContent = resolveStatusLabel(item.status);
+    statusBadge.classList.add(`status-${normalizeStatus(item.status)}`);
 
     title.textContent = item.title;
     desc.textContent = item.description || "Описание будет предоставлено после отклика.";
+    renderLotsPreview(lotsEl, lots);
 
     meta.innerHTML = [
       `<span>${item.category}</span>`,
-      `<span>${item.quantity} ${item.unit}</span>`,
-      `<span>${money(item.price)} / ${item.unit}</span>`,
+      `<span>${lots.length} ${declension(lots.length, ["лот", "лота", "лотов"])}</span>`,
+      `<span>${totalUnits} ${declension(totalUnits, ["шт", "шт", "шт"])}</span>`,
+      `<span>до ${money(totalBudget)}</span>`,
       `<span>${item.city}</span>`,
     ].join("");
 
-    company.textContent = `${item.company} • рейтинг ${item.rating}`;
+    const listingCount = companyLotCounts.get(item.company) || 1;
+    company.textContent = `${item.company} • объявлений: ${listingCount} • рейтинг ${item.rating}`;
 
     card.style.animationDelay = `${Math.min(index * 35, 210)}ms`;
     cardsEl.append(node);
   });
 }
 
+function renderKanban(items, companyLotCounts) {
+  STATUS_COLUMNS.forEach((column) => {
+    const columnEl = document.createElement("li");
+    columnEl.className = "kanban-column";
+
+    const columnItems = items.filter((item) => normalizeStatus(item.status) === column.key);
+
+    const head = document.createElement("div");
+    head.className = "kanban-head";
+
+    const title = document.createElement("h3");
+    title.className = "kanban-title";
+    title.textContent = column.title;
+    head.append(title);
+
+    const count = document.createElement("span");
+    count.className = "kanban-count";
+    count.textContent = String(columnItems.length);
+    head.append(count);
+    columnEl.append(head);
+
+    const list = document.createElement("ul");
+    list.className = "kanban-list";
+
+    if (!columnItems.length) {
+      const empty = document.createElement("li");
+      empty.className = "kanban-empty";
+      empty.textContent = "Нет объявлений";
+      list.append(empty);
+    } else {
+      columnItems.forEach((item, index) => {
+        const node = cardTemplate.content.cloneNode(true);
+        const card = node.querySelector(".trade-card");
+        const typeBadge = node.querySelector(".type-badge");
+        const statusBadge = node.querySelector(".status-badge");
+        const titleNode = node.querySelector(".card-title");
+        const desc = node.querySelector(".card-desc");
+        const lotsEl = node.querySelector(".card-lots");
+        const meta = node.querySelector(".card-meta");
+        const company = node.querySelector(".company");
+        const lots = normalizeLots(item.lots);
+        const totalUnits = sumLotUnits(lots);
+        const totalBudget = sumLotBudget(lots);
+
+        typeBadge.textContent = item.type === "sell" ? "Компания продает" : "Компания покупает";
+        typeBadge.classList.add(item.type === "sell" ? "type-sell" : "type-buy");
+        card.classList.add(item.type === "sell" ? "trade-sell" : "trade-buy");
+        statusBadge.textContent = resolveStatusLabel(item.status);
+        statusBadge.classList.add(`status-${normalizeStatus(item.status)}`);
+
+        titleNode.textContent = item.title;
+        desc.textContent = item.description || "Описание будет предоставлено после отклика.";
+        renderLotsPreview(lotsEl, lots);
+        meta.innerHTML = [
+          `<span>${item.category}</span>`,
+          `<span>${lots.length} ${declension(lots.length, ["лот", "лота", "лотов"])}</span>`,
+          `<span>${totalUnits} ${declension(totalUnits, ["шт", "шт", "шт"])}</span>`,
+          `<span>до ${money(totalBudget)}</span>`,
+          `<span>${item.city}</span>`,
+        ].join("");
+        const listingCount = companyLotCounts.get(item.company) || 1;
+        company.textContent = `${item.company} • объявлений: ${listingCount} • рейтинг ${item.rating}`;
+
+        card.style.animationDelay = `${Math.min(index * 35, 210)}ms`;
+        list.append(node);
+      });
+    }
+
+    columnEl.append(list);
+    cardsEl.append(columnEl);
+  });
+}
+
+function getCompanyLotCountsBySection() {
+  const counts = new Map();
+
+  listings.forEach((item) => {
+    if (item.type !== section) return;
+    const key = item.company;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  return counts;
+}
+
 function getFilteredListings() {
   const query = searchInput.value.trim().toLowerCase();
-  const type = typeFilter.value;
   const category = categoryFilter.value;
 
   return listings.filter((item) => {
-    const matchesType = type === "all" || item.type === type;
+    const matchesSection = item.type === section;
     const matchesCategory = category === "all" || item.category === category;
-    const searchable = `${item.title} ${item.company} ${item.category} ${item.description}`.toLowerCase();
+    const lotNames = normalizeLots(item.lots)
+      .map((lot) => lot.name)
+      .join(" ");
+    const searchable = `${item.title} ${item.company} ${item.category} ${item.description} ${lotNames}`.toLowerCase();
     const matchesSearch = query.length === 0 || searchable.includes(query);
 
-    return matchesType && matchesCategory && matchesSearch;
+    return matchesSection && matchesCategory && matchesSearch;
   });
 }
 
 function resolveTitle() {
-  if (typeFilter.value === "sell") return "Лента активов на продаже";
-  if (typeFilter.value === "buy") return "Лента заявок на закупку";
-  return "Все объявления";
+  return section === "buy" ? "Раздел покупок" : "Раздел продаж";
 }
 
 function averageCheck() {
   if (!listings.length) return 0;
 
-  const total = listings.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const total = listings.reduce((sum, item) => sum + sumLotBudget(normalizeLots(item.lots)), 0);
   return Math.round(total / listings.length);
 }
 
 function openDialog() {
+  const typeField = lotForm.elements.namedItem("type");
+  if (typeField && "value" in typeField) {
+    typeField.value = section;
+  }
+  if (!lotItems.children.length) {
+    resetLotBuilder();
+  }
+
   if (typeof lotDialog.showModal === "function") {
     lotDialog.showModal();
     return;
@@ -219,10 +365,32 @@ function loadListings() {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || !parsed.length) return demoData();
 
-    return parsed.sort((a, b) => b.createdAt - a.createdAt);
+    return parsed.map(normalizeListing).sort((a, b) => b.createdAt - a.createdAt);
   } catch {
     return demoData();
   }
+}
+
+function loadViewMode() {
+  const mode = localStorage.getItem(VIEW_MODE_KEY);
+  return mode === "kanban" ? "kanban" : "list";
+}
+
+function loadSection() {
+  const value = localStorage.getItem(SECTION_KEY);
+  return value === "buy" ? "buy" : "sell";
+}
+
+function setViewMode(mode) {
+  viewMode = mode === "kanban" ? "kanban" : "list";
+  localStorage.setItem(VIEW_MODE_KEY, viewMode);
+  render();
+}
+
+function setSection(value) {
+  section = value === "buy" ? "buy" : "sell";
+  localStorage.setItem(SECTION_KEY, section);
+  render();
 }
 
 function saveListings() {
@@ -238,9 +406,11 @@ function demoData() {
       city: "Екатеринбург",
       category: "Металл и сырье",
       title: "Листовая сталь 09Г2С",
-      price: 74200,
-      quantity: 180,
-      unit: "т",
+      lots: [
+        { name: "Листовая сталь 09Г2С", quantity: 180, maxPrice: 74200 },
+        { name: "Уголок стальной 50x50", quantity: 90, maxPrice: 51800 },
+      ],
+      status: "published",
       description: "Поставка партиями, сертификаты качества, отгрузка за 48 часов.",
       verified: true,
       rating: "4.9",
@@ -253,9 +423,11 @@ function demoData() {
       city: "Казань",
       category: "Логистика",
       title: "Закупка дизельных тягачей Euro-6",
-      price: 5150000,
-      quantity: 8,
-      unit: "шт",
+      lots: [
+        { name: "Тягачи Euro-6", quantity: 8, maxPrice: 5150000 },
+        { name: "Сервисные контракты", quantity: 8, maxPrice: 180000 },
+      ],
+      status: "review",
       description: "Нужны тягачи не старше 2022 года, пробег до 150 тыс. км.",
       verified: true,
       rating: "4.8",
@@ -268,9 +440,11 @@ function demoData() {
       city: "Москва",
       category: "ИТ и автоматизация",
       title: "PLC-контроллеры Siemens S7-1200",
-      price: 38900,
-      quantity: 120,
-      unit: "шт",
+      lots: [
+        { name: "PLC S7-1200 CPU", quantity: 120, maxPrice: 38900 },
+        { name: "Модули ввода/вывода", quantity: 240, maxPrice: 12800 },
+      ],
+      status: "bidding",
       description: "Оригинал, полный комплект документации, помощь в интеграции.",
       verified: true,
       rating: "4.7",
@@ -283,9 +457,11 @@ function demoData() {
       city: "Санкт-Петербург",
       category: "Оборудование",
       title: "Линия фасовки для пищевого производства",
-      price: 28900000,
-      quantity: 1,
-      unit: "компл",
+      lots: [
+        { name: "Линия фасовки", quantity: 1, maxPrice: 28900000 },
+        { name: "Пуско-наладка", quantity: 1, maxPrice: 950000 },
+      ],
+      status: "draft",
       description: "Требуется монтаж под ключ и обучение персонала.",
       verified: true,
       rating: "4.9",
@@ -308,6 +484,129 @@ function injectCategory(value) {
 
 function cleanText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeLots(lots) {
+  if (!Array.isArray(lots)) return [];
+
+  return lots
+    .map((lot) => ({
+      name: cleanText(lot?.name),
+      quantity: normalizePositiveInt(lot?.quantity),
+      maxPrice: normalizePositiveInt(lot?.maxPrice),
+    }))
+    .filter((lot) => lot.name && lot.quantity > 0 && lot.maxPrice > 0);
+}
+
+function normalizeListing(item) {
+  const lots = normalizeLots(item?.lots);
+  if (lots.length) {
+    return { ...item, lots };
+  }
+
+  const fallbackName = cleanText(item?.title) || "Позиция";
+  const fallbackQuantity = normalizePositiveInt(item?.quantity);
+  const fallbackMaxPrice = normalizePositiveInt(item?.price);
+
+  return {
+    ...item,
+    lots: [{ name: fallbackName, quantity: fallbackQuantity, maxPrice: fallbackMaxPrice }],
+  };
+}
+
+function normalizePositiveInt(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.round(parsed);
+}
+
+function sumLotUnits(lots) {
+  return lots.reduce((sum, lot) => sum + lot.quantity, 0);
+}
+
+function sumLotBudget(lots) {
+  return lots.reduce((sum, lot) => sum + lot.quantity * lot.maxPrice, 0);
+}
+
+function renderLotsPreview(target, lots) {
+  target.innerHTML = "";
+
+  const preview = lots.slice(0, 3);
+  preview.forEach((lot) => {
+    const row = document.createElement("li");
+    row.textContent = `${lot.name}: ${lot.quantity} шт, до ${money(lot.maxPrice)}`;
+    target.append(row);
+  });
+
+  if (lots.length > preview.length) {
+    const more = document.createElement("li");
+    more.className = "lot-more";
+    more.textContent = `+ еще ${lots.length - preview.length} ${declension(lots.length - preview.length, ["лот", "лота", "лотов"])}`;
+    target.append(more);
+  }
+}
+
+function collectLots() {
+  const rows = Array.from(lotItems.querySelectorAll(".lot-row"));
+  const lots = rows.map((row) => {
+    const name = cleanText(row.querySelector('[name="lotName"]')?.value);
+    const quantity = normalizePositiveInt(row.querySelector('[name="lotQuantity"]')?.value);
+    const maxPrice = normalizePositiveInt(row.querySelector('[name="lotMaxPrice"]')?.value);
+    return { name, quantity, maxPrice };
+  });
+
+  return lots.filter((lot) => lot.name && lot.quantity > 0 && lot.maxPrice > 0);
+}
+
+function appendLotRow(initial = {}) {
+  const row = document.createElement("div");
+  row.className = "lot-row";
+  row.innerHTML = `
+    <input name="lotName" type="text" maxlength="80" placeholder="Позиция (например, Карандаши)" required value="${escapeHtml(cleanText(initial.name))}" />
+    <input name="lotQuantity" type="number" min="1" required value="${normalizePositiveInt(initial.quantity || 1)}" />
+    <input name="lotMaxPrice" type="number" min="1" required value="${normalizePositiveInt(initial.maxPrice || 1)}" />
+    <button type="button" class="icon-btn lot-remove" aria-label="Удалить лот">×</button>
+  `;
+
+  const removeBtn = row.querySelector(".lot-remove");
+  removeBtn.addEventListener("click", () => {
+    if (lotItems.children.length <= 1) return;
+    row.remove();
+  });
+
+  lotItems.append(row);
+}
+
+function resetLotBuilder() {
+  lotItems.innerHTML = "";
+  appendLotRow();
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function declension(value, forms) {
+  const n = Math.abs(value) % 100;
+  const n1 = n % 10;
+  if (n > 10 && n < 20) return forms[2];
+  if (n1 > 1 && n1 < 5) return forms[1];
+  if (n1 === 1) return forms[0];
+  return forms[2];
+}
+
+function normalizeStatus(status) {
+  return STATUS_SET.has(status) ? status : "draft";
+}
+
+function resolveStatusLabel(status) {
+  const normalized = normalizeStatus(status);
+  const column = STATUS_COLUMNS.find((item) => item.key === normalized);
+  return column ? column.title : "Черновик";
 }
 
 function randomRating() {

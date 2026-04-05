@@ -17,9 +17,9 @@
           <h1>Trade Hub</h1>
         </div>
         <div class="topbar-actions">
-          <button class="ghost-btn" id="viewSellBtn">Активы на продаже</button>
-          <button class="ghost-btn" id="viewBuyBtn">Заявки на закупку</button>
-          <button class="brand-btn" id="createBtn">Разместить лот</button>
+          <button class="ghost-btn is-active" id="viewSellBtn" type="button">Продажи</button>
+          <button class="ghost-btn" id="viewBuyBtn" type="button">Покупки</button>
+          <button class="brand-btn" id="createBtn">Разместить объявление</button>
         </div>
       </header>
 
@@ -32,15 +32,6 @@
           <label>
             Поиск
             <input id="searchInput" type="text" placeholder="Товар, компания, категория" autocomplete="off" />
-          </label>
-
-          <label>
-            Тип сделки
-            <select id="typeFilter">
-              <option value="all">Все</option>
-              <option value="sell">Продают</option>
-              <option value="buy">Покупают</option>
-            </select>
           </label>
 
           <label>
@@ -58,8 +49,14 @@
 
         <section class="board panel">
           <div class="board-top">
-            <h2 id="boardTitle">Все объявления</h2>
-            <span id="resultCount" class="result-count"></span>
+            <h2 id="boardTitle">Раздел продаж</h2>
+            <div class="board-actions">
+              <span id="resultCount" class="result-count"></span>
+              <div class="view-toggle" role="group" aria-label="Выбор вида">
+                <button class="ghost-btn small is-active" id="viewListBtn" type="button">Список</button>
+                <button class="ghost-btn small" id="viewKanbanBtn" type="button">Канбан</button>
+              </div>
+            </div>
           </div>
           <ul id="cards" class="cards" aria-label="Ленты объявлений"></ul>
         </section>
@@ -69,7 +66,7 @@
     <dialog id="lotDialog" class="lot-dialog">
       <form id="lotForm" class="dialog-card" method="dialog">
         <div class="dialog-head">
-          <h2>Новый лот</h2>
+          <h2>Новое объявление</h2>
           <button type="button" class="icon-btn" id="closeDialogBtn" aria-label="Закрыть">×</button>
         </div>
 
@@ -79,6 +76,17 @@
             <select name="type" required>
               <option value="sell">Компания продает</option>
               <option value="buy">Компания покупает</option>
+            </select>
+          </label>
+
+          <label>
+            Статус
+            <select name="status" required>
+              <option value="draft">Черновик</option>
+              <option value="review">Проверка</option>
+              <option value="published" selected>Опубликовано</option>
+              <option value="bidding">Идут торги</option>
+              <option value="done">Завершено</option>
             </select>
           </label>
 
@@ -98,25 +106,19 @@
           </label>
 
           <label>
-            Актив / позиция
-            <input name="title" type="text" required maxlength="100" placeholder="Погрузчики электрические" />
-          </label>
-
-          <label>
-            Цена за единицу, ₽
-            <input name="price" type="number" min="1" required placeholder="250000" />
-          </label>
-
-          <label>
-            Количество
-            <input name="quantity" type="number" min="1" required placeholder="12" />
-          </label>
-
-          <label>
-            Ед. измерения
-            <input name="unit" type="text" required maxlength="20" placeholder="шт" />
+            Заголовок объявления
+            <input name="title" type="text" required maxlength="100" placeholder="Нужны канцтовары для офиса" />
           </label>
         </div>
+
+        <section class="lots-builder">
+          <div class="lots-head">
+            <h3>Лоты в объявлении</h3>
+            <button type="button" class="ghost-btn small" id="addLotBtn">Добавить лот</button>
+          </div>
+          <div id="lotItems" class="lot-items"></div>
+          <p class="lots-hint">Для каждого лота укажите позицию, количество и максимальную цену за единицу.</p>
+        </section>
 
         <label>
           Описание
@@ -135,10 +137,12 @@
         <article class="trade-card">
           <div class="card-badges">
             <span class="badge type-badge"></span>
+            <span class="badge status-badge"></span>
             <span class="badge verify-badge">Проверенная компания</span>
           </div>
           <h3 class="card-title"></h3>
           <p class="card-desc"></p>
+          <ul class="card-lots"></ul>
           <div class="card-meta"></div>
           <div class="card-footer">
             <div class="company"></div>
